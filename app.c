@@ -31,6 +31,10 @@
 #include "app_assert.h"
 #include "sl_bluetooth.h"
 #include "app.h"
+#include "app_log.h"
+#include "sl_sensor_rht.h"
+#include "temperature.h"
+
 
 // The advertising set handle allocated from Bluetooth stack.
 static uint8_t advertising_set_handle = 0xff;
@@ -44,6 +48,8 @@ SL_WEAK void app_init(void)
   // Put your additional application init code here!                         //
   // This is called once during start-up.                                    //
   /////////////////////////////////////////////////////////////////////////////
+  app_log_info("%s\n", __FUNCTION__);
+
 }
 
 /**************************************************************************//**
@@ -99,11 +105,15 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
     // -------------------------------
     // This event indicates that a new connection was opened.
     case sl_bt_evt_connection_opened_id:
+      app_log_info("%s: connection_opened!\n", __FUNCTION__);
+      sl_sensor_rht_init();
       break;
 
     // -------------------------------
     // This event indicates that a connection was closed.
     case sl_bt_evt_connection_closed_id:
+      app_log_info("%s: connection_closed!\n", __FUNCTION__);
+      sl_sensor_rht_deinit();
       // Generate data for advertising
       sc = sl_bt_legacy_advertiser_generate_data(advertising_set_handle,
                                                  sl_bt_advertiser_general_discoverable);
@@ -114,6 +124,21 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
                                          sl_bt_advertiser_connectable_scannable);
       app_assert_status(sc);
       break;
+
+      // -------------------------------
+      // This event indicates that read button was opened.
+    case sl_bt_evt_gatt_server_user_read_request_id:
+      app_log_info("%s: Read_button_opened!\n", __FUNCTION__);
+      int16_t bleTemperature;
+      sl_status_t status = getAndConvertTemperatureToBLE(&bleTemperature);
+
+      if (status == SL_STATUS_OK) {
+        app_log_info("Temperature (BLE format): %d\n", bleTemperature);
+      } else {
+          app_log_info("Failed to get temperature (Status: %lu)\n", (unsigned long)status);
+      }
+      break;
+
 
     ///////////////////////////////////////////////////////////////////////////
     // Add additional event handlers here as your application requires!      //
