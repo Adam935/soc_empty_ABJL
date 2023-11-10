@@ -34,7 +34,8 @@
 #include "app_log.h"
 #include "sl_sensor_rht.h"
 #include "temperature.h"
-
+#include "sl_bt_api.h"
+#include "gatt_db.h"
 
 // The advertising set handle allocated from Bluetooth stack.
 static uint8_t advertising_set_handle = 0xff;
@@ -129,17 +130,70 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
       // This event indicates that read button was opened.
     case sl_bt_evt_gatt_server_user_read_request_id:
       app_log_info("%s: Read_button_opened!\n", __FUNCTION__);
+
+      // Here we get all the data that we need for sending our temperature to the device
+
+      uint8_t connection = evt->data.evt_gatt_server_user_read_request.connection;
+      uint16_t characteristic = evt->data.evt_gatt_server_user_read_request.characteristic;
+
+      app_log_info("Temperature characteristic identifier by the read button : %d\n", characteristic);
+
+
+       // here we do the test condition for see if we have indeed the same identifier
+      if (characteristic == gattdb_temperature){
+
+          app_log_info("The read button is indeed link to the identifier temperature characteristic  : \n");
+      }else{
+
+          app_log_info("Houston we have a problem! the read button (for temperature) isn't link to the identifier temperature characteristic! : \n");
+      }
+
+      // Here we start to init for get and convert our temperature
       int16_t bleTemperature;
+
+      // use function from temperature.h
       sl_status_t status = getAndConvertTemperatureToBLE(&bleTemperature);
 
       if (status == SL_STATUS_OK) {
         app_log_info("Temperature (BLE format): %d\n", bleTemperature);
+
+        // Here we init the sent_len to unit16_t because its how BLE work
+        uint16_t sent_len;
+        // we use the read response with the parameter above for setup the sending.
+        status = sl_bt_gatt_server_send_user_read_response(connection,
+                                                           characteristic,
+                                                           0,  // att_errorcode
+                                                           sizeof(bleTemperature),
+                                                           (uint8_t*)&bleTemperature,
+                                                           &sent_len);
       } else {
           app_log_info("Failed to get temperature (Status: %lu)\n", (unsigned long)status);
       }
       break;
 
 
+
+      // -------------------------------
+      // This event indicates that we notification status is ON.
+      case sl_bt_evt_gatt_server_characteristic_status_id:
+        app_log_info("%s: notification status is ON!\n", __FUNCTION__);
+
+        uint16_t characteristic_notify_button = evt->data.evt_gatt_server_characteristic_status.characteristic;
+
+        app_log_info("Temperature characteristic identifier by the notify button : %d\n", characteristic_notify_button);
+
+
+         // here we do the test condition for see if we have indeed the same identifier
+        if (characteristic_notify_button == gattdb_temperature){
+
+            app_log_info("The notify button is indeed link to the identifier temperature characteristic  : \n");
+        }else{
+
+            app_log_info("Houston we have a problem! the notify button (for temperature) isn't link to the identifier temperature characteristic! : \n");
+        }
+
+
+        break;
     ///////////////////////////////////////////////////////////////////////////
     // Add additional event handlers here as your application requires!      //
     ///////////////////////////////////////////////////////////////////////////
