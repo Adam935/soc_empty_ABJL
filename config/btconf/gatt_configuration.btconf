@@ -87,4 +87,16 @@
       </properties>
     </characteristic>
   </service>
+
+  <!--automation_io-->
+  <service advertise="false" name="automation_io" requirement="mandatory" sourceId="" type="primary" uuid="1815">
+
+    <!--Digital-->
+    <characteristic const="false" name="Digital" sourceId="org.bluetooth.characteristic.digital" uuid="2A56">
+      <value length="0" type="user" variable_length="false">00</value>
+      <properties>
+        <write authenticated="false" bonded="false" encrypted="false"/>
+      </properties>
+    </characteristic>
+  </service>
 </gatt>

@@ -37,12 +37,14 @@
 #include "sl_bt_api.h"
 #include "gatt_db.h"
 #include "sl_sleeptimer.h"
+#include <sl_bt_types.h>
+#define TEMPERATURE_TIMER_SIGNAL (1<<0)
 
 // The advertising set handle allocated from Bluetooth stack.
 static uint8_t advertising_set_handle = 0xff;
 // Storage of the timer
 static sl_sleeptimer_timer_handle_t timer_handle;
-
+bool timer_set = false;
 uint32_t timeout_question_21 = 1000;
 uint32_t timeout_21;
 
@@ -54,6 +56,16 @@ struct timer_struct {
 
 struct timer_struct temperature_data = {
     .myVariable =1,
+};
+
+struct data_struct{
+  int characteristic;
+  uint8_t *data;
+  uint16_t data_len;
+};
+
+struct data_struct led_data ={
+
 };
 /**************************************************************************//**
  * Application Init.
@@ -88,44 +100,11 @@ SL_WEAK void app_process_action(void)
  *****************************************************************************/
 
 // Used in the question 21 for set the timer of notify
- void CallbackFunction(sl_sleeptimer_timer_handle_t *handle, void *data) {
-           sl_status_t sc;
-           bool running = false;
-           struct timer_struct * my_ts = (struct timer_struct *) data;
-           int16_t bleTemperature_for_notify;
+void CallbackFunction() {
+    sl_bt_external_signal(TEMPERATURE_TIMER_SIGNAL);
 
-           handle  = handle;
-           app_log_info("Timer step: %d\n", my_ts->myVariable);
+}
 
-          sc = sl_sleeptimer_is_timer_running(handle, &running);
-          if (sc == SL_STATUS_OK && running == true) {
-              sc = sl_sleeptimer_stop_timer(handle);
-              app_assert_status(sc);
-          }
-          // use function from temperature.h
-          sl_status_t status_notify = getAndConvertTemperatureToBLE(&bleTemperature_for_notify);
-
-          if (status_notify == SL_STATUS_OK) {
-            app_log_info("Temperature (BLE format): %d\n", bleTemperature_for_notify);
-            app_log_info("connection: %d\n", my_ts->connection);
-            app_log_info("characteristic: %d\n", my_ts->characteristic);
-            int sz = sizeof(bleTemperature_for_notify);
-            app_log_info("data sz: %d\n", sz);
-
-            // we use the read response with the parameter above for setup the sending.
-            status_notify = sl_bt_gatt_server_send_notification(my_ts->connection,
-                                                                my_ts->characteristic,
-                                                               sz,
-                                                               (uint8_t*)&bleTemperature_for_notify);
-
-            app_log_info("and send notif Status: %lu\n", status_notify);
-
-          } else {
-            app_log_info("Failed to get temperature (Status: %lu)\n", (unsigned long)status_notify);
-          }
-
-          my_ts->myVariable += 1;
-        }
 
 void sl_bt_on_event(sl_bt_msg_t *evt)
 {
@@ -232,93 +211,124 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
 
       // -------------------------------
       // This event indicates that we notification status is ON.
-      case sl_bt_evt_gatt_server_characteristic_status_id:
-        app_log_info("%s: notification status is ON!\n", __FUNCTION__);
+    case sl_bt_evt_gatt_server_characteristic_status_id:
+      app_log_info("%s: notification status is ON!\n", __FUNCTION__);
 
-        uint16_t characteristic_notify_button = evt->data.evt_gatt_server_characteristic_status.characteristic;
-        uint8_t connection_notify_button = evt->data.evt_gatt_server_characteristic_status.connection;
-        temperature_data.characteristic = characteristic_notify_button;
-        temperature_data.connection = connection_notify_button;
+      temperature_data.characteristic = evt->data.evt_gatt_server_characteristic_status.characteristic;
+      temperature_data.connection = evt->data.evt_gatt_server_characteristic_status.connection;
 
-        app_log_info("connection : %d\n", evt->data.evt_gatt_server_characteristic_status.connection);
+      app_log_info("connection : %d\n", evt->data.evt_gatt_server_characteristic_status.connection);
 
-        app_log_info("Temperature characteristic identifier by the notify button : %d\n", characteristic_notify_button);
+      app_log_info("Temperature characteristic identifier by the notify button : %d\n", temperature_data.characteristic);
 
+      // Check if the characteristic is the temperature characteristic
+      if (temperature_data.characteristic == gattdb_temperature) {
+        app_log_info("The notify button is indeed linked to the identifier temperature characteristic  : \n");
+        uint32_t status_flags = evt->data.evt_gatt_server_characteristic_status.status_flags;
 
+        app_log_info("Status flag of our notif button after being activated : %lu\n", status_flags);
 
-         // here we do the test condition for see if we have indeed the same identifier
-        if (characteristic_notify_button == gattdb_temperature){
+        if (status_flags == sl_bt_gatt_server_client_config) {
+          app_log_info("we are indeed clicking on the notify button.\n");
+          int config = evt->data.evt_gatt_server_characteristic_status.client_config_flags;
+          app_log_info("The value of the server_client_config is : %d\n", config);
 
-            app_log_info("The notify button is indeed link to the identifier temperature characteristic  : \n");
-            uint32_t status_flags = evt->data.evt_gatt_server_characteristic_status.status_flags;
+          switch (config) {
+            case 0:
+              app_log_info("the actual value of notify is %d  which means 'Disable notifications and indications'\n", config);
+              sl_status_t stop_status = sl_sleeptimer_stop_timer(&timer_handle);
+              if (stop_status == SL_STATUS_OK) {
+                app_log_info("Timer stopped successfully.\n");
+                timer_set = false;
+              } else {
+                app_log_info("Failed to stop the timer (Status: %lu)\n", (unsigned long)stop_status);
+              }
+              break;
 
-            app_log_info("Status flag of our notif button after been activated : %lu\n", status_flags);
-
-             if (status_flags==sl_bt_gatt_server_client_config){
-
-                      app_log_info("we are indeed clicking on the notify button.\n");
-                      int config = evt->data.evt_gatt_server_characteristic_status.client_config_flags;
-                      app_log_info("The value of the server_client_config is : %d\n", config);
-
-                      switch (config) {
-                           case 0:
-                             app_log_info("the actual value of notify is %d  which mean 'Disable notifications and indications'\n", config);
-                             sl_status_t stop_status = sl_sleeptimer_stop_timer(&timer_handle);
-                             if (stop_status == SL_STATUS_OK) {
-                                 app_log_info("Timer stopped successfully.\n");
-                             } else {
-                                 app_log_info("Failed to stop the timer (Status: %lu)\n", (unsigned long)stop_status);
-                             }
-                           break;
-                           case 1:
-#if 0
-                             app_log_info("the actual value of notify is %d  which mean 'The characteristic value shall be notified'\n", config);
-                             // Here we did the question 21:
-                             timeout_21 =sl_sleeptimer_ms_to_tick(timeout_question_21);
-                             // Start the timer and provide the callback function and data
-                             sl_sleeptimer_start_periodic_timer(&timer_handle,
-                                                                timeout_21,
-                                                                &CallbackFunction,
-                                                                (void *)&temperature_data,
-                                                                0,
-                                                                0);
-#else
-                             CallbackFunction(NULL, &temperature_data);
-#endif
-                           break;
-                           case 2:
-                             app_log_info("the actual value of notify is %d  which mean 'The characteristic value shall be indicated'\n", config);
-                           break;
-                           case 3:
-                             app_log_info("the actual value of notify is %d  which mean 'The characteristic value notification and indication are enabled, application decides which one to send.'\n", config);
-                           break;
-                           // -------------------------------
-                           // Default event handler.
-                           default:
-                           break;
-                         }
-
-                  }else{
-
-                      app_log_info("We have a problem because it's not good my button notify it's ON but he didn't send any message to the server for say it's clicked");
-                  }
-
-                  // Here we check if the status flag is the same of the server client config
-
-        }else{
-
-            app_log_info("Houston we have a problem! the notify button (for temperature) isn't link to the identifier temperature characteristic! : \n");
+            case 1:
+              app_log_info("the actual value of notify is %d  which means 'The characteristic value shall be notified'\n", config);
+              if (!timer_set || !sl_sleeptimer_is_timer_running(&timer_handle, NULL)) {
+                timeout_21 = sl_sleeptimer_ms_to_tick(timeout_question_21);
+                // Start the timer and provide the callback function and data
+                sl_sleeptimer_start_periodic_timer(&timer_handle,
+                                                   timeout_21,
+                                                   &CallbackFunction,
+                                                   (void *)&temperature_data,
+                                                   0,
+                                                   0);
+                timer_set = true;
+              }
+              break;
+            case 2:
+              app_log_info("the actual value of notify is %d  which means 'The characteristic value shall be indicated'\n", config);
+              break;
+            case 3:
+              app_log_info("the actual value of notify is %d  which means 'The characteristic value notification and indication are enabled, application decides which one to send.'\n", config);
+              break;
+            // -------------------------------
+            // Default event handler.
+            default:
+              break;
+          }
+        } else {
+          app_log_info("We have a problem because it's not good my button notify it's ON but he didn't send any message to the server for say it's clicked");
         }
+      } else {
+        app_log_info("Houston we have a problem! the notify button (for temperature) isn't linked to the identifier temperature characteristic! : \n");
+      }
 
-
-        // Here we will see what the actual value of notify (activate, deasable, other ?)
-        //sl_bt_gatt_server_client_configuration_t config = (sl_bt_gatt_server_client_configuration_t)
-
-
-        break;
+      break;
     ///////////////////////////////////////////////////////////////////////////
     // Add additional event handlers here as your application requires!      //
     ///////////////////////////////////////////////////////////////////////////
+    case sl_bt_evt_system_external_signal_id:{
+                 struct timer_struct *my_ts = (struct timer_struct *)&temperature_data;
+
+                 int16_t bleTemperature_for_notify;
+
+
+                 app_log_info("Timer step: %d\n", my_ts->myVariable);
+
+                // use function from temperature.h
+                sl_status_t status_notify = getAndConvertTemperatureToBLE(&bleTemperature_for_notify);
+                app_log_info("Statue notify: %lu\n", status_notify);
+                if (status_notify == SL_STATUS_OK) {
+                  app_log_info("Temperature (BLE format): %d\n", bleTemperature_for_notify);
+                  app_log_info("connection: %d\n", my_ts->connection);
+                  app_log_info("characteristic: %d\n", my_ts->characteristic);
+                  int sz = sizeof(bleTemperature_for_notify);
+                  app_log_info("data sz: %d\n", sz);
+
+                  // we use the read response with the parameter above for setup the sending.
+                  status_notify = sl_bt_gatt_server_send_notification(my_ts->connection,
+                                                                      my_ts->characteristic,
+                                                                     sz,
+                                                                     (uint8_t*)&bleTemperature_for_notify);
+
+                  app_log_info("and send notif Status: %lu\n", status_notify);
+
+                } else {
+                  app_log_info("Failed to get temperature (Status: %lu)\n", (unsigned long)status_notify);
+                }
+
+                my_ts->myVariable += 1;
+       break;
+      }
+
+    case sl_bt_evt_gatt_server_user_write_request_id:{
+
+      led_data.characteristic = evt->data.evt_gatt_server_user_write_request.characteristic;
+      app_log_info("Tem!!!!!!!!!!!!: %d\n", led_data.characteristic);
+      if (led_data.characteristic == sl_bt_gatt_server_client_config) {
+          // Extract the written value
+          led_data.data = evt->data.evt_gatt_server_user_write_request.value.data;
+          led_data.data_len = evt->data.evt_gatt_server_user_write_request.value.len;
+          app_log_info("Tem!!!!!!!!!!!!: %d\n", led_data.characteristic);
+          app_log_info("!!!!!!!!!!!: %hhn\n", led_data.data);
+          app_log_info("$$$$$$$$$$$$$$$: %d\n", led_data.data_len);
+      }
+      break;
+    }
 
     // -------------------------------
     // Default event handler.

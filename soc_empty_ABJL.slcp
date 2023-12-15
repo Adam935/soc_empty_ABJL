@@ -30,11 +30,13 @@ component:
 - {id: brd4166a}
 - {id: in_place_ota_dfu}
 - {id: bluetooth_feature_sm}
-- {id: mpu}
 - {id: bluetooth_feature_legacy_advertiser}
+- {id: mpu}
 - {id: EFR32MG12P332F1024GL125}
 - {id: gatt_configuration}
 - {id: gatt_service_device_information}
+- instance: [led0]
+  id: simple_led
 - {id: bluetooth_stack}
 - {id: rail_util_pti}
 - {id: bluetooth_feature_gatt}
